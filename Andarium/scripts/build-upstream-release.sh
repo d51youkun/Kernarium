@@ -12,7 +12,7 @@ upstream=imxieyi/Kernarium
 tag=$1
 build_number=$(($2 + $3))
 output=$4
-root=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd -P)
 
 [[ $(uname -m) == arm64 ]]
 sdk=$(xcrun --sdk iphoneos --show-sdk-version)
@@ -43,8 +43,8 @@ rmdir -- "$probe"
 mkdir -p "$downloads" "$output/publish"
 git -C "$root" fetch --no-tags "https://github.com/$upstream.git" "refs/tags/$tag:$ref"
 git -C "$root" worktree add --detach "$tree" HEAD
-trap 'cd "$root"; git worktree remove --force "$tree"' EXIT
-cd "$tree"
+trap 'CDPATH= cd -- "$root"; git worktree remove --force "$tree"' EXIT
+CDPATH= cd -- "$tree"
 git merge --no-edit "${ref}^{commit}"
 [[ -z $(git status --porcelain) ]]
 
@@ -66,7 +66,7 @@ fetch_archive() {
     digest=$(jq -er --arg name "$name" '.[] | select(.name == $name) | .digest | sub("^sha256:"; "")' <<< "$assets")
     [[ $digest =~ ^[a-f0-9]{64}$ ]] || return 1
     gh release download "$tag" --repo "$upstream" --pattern "$name" --dir "$downloads"
-    (cd "$downloads" && printf '%s  %s\n' "$digest" "$name" | shasum -a 256 -c -)
+    (CDPATH= cd -- "$downloads" && printf '%s  %s\n' "$digest" "$name" | shasum -a 256 -c -)
     tar -xzf "$downloads/$name" -C "$2"
     rm -- "$downloads/$name"
 }
@@ -109,9 +109,9 @@ plist="$output/Payload/Andarium.app/Info.plist"
 [[ $(plutil -extract CFBundleVersion raw -o - "$plist") == "$build_number" ]]
 
 name="Andarium-${tag#andarium-}-$build_number"
-cd "$output"
+CDPATH= cd -- "$output"
 ditto -c -k --norsrc --keepParent Payload "publish/$name-unsigned.ipa"
 git -C "$tree" archive --format=tar.gz --prefix="$name/" \
     --output="$output/publish/$name-source.tar.gz" HEAD
 git -C "$tree" rev-parse HEAD > "publish/$name-source-commit.txt"
-(cd publish && shasum -a 256 ./* > SHA256SUMS)
+(CDPATH= cd -- publish && shasum -a 256 ./* > SHA256SUMS)
