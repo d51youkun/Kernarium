@@ -89,7 +89,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Prepare macOS build tools and case-sensitive storage
+      - name: Prepare macOS build tools
         shell: bash
         run: |
           set -euo pipefail
@@ -107,12 +107,20 @@ jobs:
           printf '%s\n' "$RUNNER_TEMP/andarium-python/bin" >> "$GITHUB_PATH"
           git config --local user.name "$GITHUB_ACTOR"
           git config --local user.email "$GITHUB_ACTOR_ID+$GITHUB_ACTOR@users.noreply.github.com"
+      - name: Archive Andarium and package an unsigned IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The runner can tear down image mounts at the end of a step.
+          # Keep the mount alive through the build and copy out only the deliverables.
           scratch=$(mktemp -d "$RUNNER_TEMP/andarium-volume.XXXXXXXX")
           mkdir "$scratch/base" "$scratch/work"
           image="$scratch/build.asif"
           diskutil image create blank --format ASIF --size 75g --volumeName AndariumBase --fs APFS "$image"
           diskutil image attach --nobrowse --mountPoint "$scratch/base" "$image"
-          printf 'ANDARIUM_DISK_MOUNT=%s\n' "$scratch/base" >> "$GITHUB_ENV"
+          trap 'diskutil eject "$scratch/base" || true' EXIT
           container=$(diskutil info -plist "$scratch/base" | plutil -extract APFSContainerReference raw -o - -)
           label="AndariumBuild-${scratch##*.}"
           diskutil apfs addVolume "$container" APFSX "$label" -nomount
@@ -125,27 +133,17 @@ jobs:
           touch "$scratch/work/case-probe"
           test ! -e "$scratch/work/CASE-PROBE"
           rm "$scratch/work/case-probe"
-          printf 'ANDARIUM_BUILD_VOLUME=%s\n' "$scratch/work" >> "$GITHUB_ENV"
-      - name: Archive Andarium and package an unsigned IPA
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: bash Andarium/scripts/build-upstream-release.sh "$UPSTREAM_TAG" "$BUILD_FLOOR" 1 "$ANDARIUM_BUILD_VOLUME/build"
+          df -h "$scratch/work" "$RUNNER_TEMP"
+          bash Andarium/scripts/build-upstream-release.sh "$UPSTREAM_TAG" "$BUILD_FLOOR" 1 "$scratch/work/build"
+          mkdir "$RUNNER_TEMP/andarium-publish"
+          cp "$scratch/work/build/publish/"* "$RUNNER_TEMP/andarium-publish/"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: andarium-release
-          path: ${{ env.ANDARIUM_BUILD_VOLUME }}/build/publish/*
+          path: ${{ runner.temp }}/andarium-publish/*
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
-      - name: Detach temporary build volume
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -n "${ANDARIUM_DISK_MOUNT:-}" ]]; then
-            diskutil eject "$ANDARIUM_DISK_MOUNT"
-          fi
 
   publish:
     needs: [detect, build]
