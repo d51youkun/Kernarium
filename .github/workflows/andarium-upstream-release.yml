@@ -144,6 +144,7 @@ jobs:
           mkdir "$RUNNER_TEMP/andarium-publish"
           cp "$scratch/work/build/publish/"* "$RUNNER_TEMP/andarium-publish/"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: vars.ANDARIUM_VERIFIED_RELEASE_COMMIT == github.sha
         with:
           name: andarium-release
           path: ${{ runner.temp }}/andarium-publish/*
@@ -153,6 +154,8 @@ jobs:
 
   publish:
     needs: [detect, build]
+    # The embedded VM requires a device boot and redistribution review before public release.
+    if: vars.ANDARIUM_VERIFIED_RELEASE_COMMIT == github.sha
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

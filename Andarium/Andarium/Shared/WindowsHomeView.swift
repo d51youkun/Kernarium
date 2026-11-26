@@ -15,6 +15,7 @@ struct WindowsHomeView: View {
     @State private var showingSession = false
     @State private var lastCommandPreview = ""
     @State private var lastJitActive = false
+    @State private var launchError: String?
 
     private var winProfile: MultiOSProfile {
         manager.windowsProfile
@@ -229,6 +230,10 @@ struct WindowsHomeView: View {
                 Button {
                     Task {
                         let res = await manager.startVM(winProfile)
+                        guard QemuRuntimeEngine.shared.isRunning else {
+                            launchError = manager.statusLog
+                            return
+                        }
                         lastJitActive = res.jitActive
                         lastCommandPreview = res.commandPreview
                         showingSession = true
@@ -259,6 +264,13 @@ struct WindowsHomeView: View {
         }
         .sheet(isPresented: $showingISOGuide) {
             WindowsISOGuideSheet()
+        }
+        .alert("Windowsを起動できませんでした", isPresented: Binding(
+            get: { launchError != nil }, set: { if !$0 { launchError = nil } }
+        )) {
+            Button("OK", role: .cancel) { launchError = nil }
+        } message: {
+            Text(launchError ?? "")
         }
         .sheet(isPresented: $showingJitSettings) {
             JitSettingsSheet()
@@ -475,7 +487,7 @@ struct MultiOSSessionView: View {
             }
         }
         .onAppear {
-            vnc.connect(port: engine.vncPort)
+            if let socket = engine.displaySocket { vnc.connect(socket: socket) }
         }
         .onDisappear {
             vnc.disconnect()

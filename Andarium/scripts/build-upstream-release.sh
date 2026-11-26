@@ -110,6 +110,7 @@ utm_version="v5.0.9-2"
 utm_dir="$downloads/utm-$utm_version"
 mkdir -p "$utm_dir"
 curl -fsSL -o "$utm_dir/UTM.ipa" "https://github.com/utmapp/UTM/releases/download/$utm_version/UTM.ipa"
+printf '%s  %s\n' '81a01267b5785e10e868e6ad8a471efa66e267fb8f189fd971c6511a48bcc0c5' "$utm_dir/UTM.ipa" | shasum -a 256 -c -
 unzip -q "$utm_dir/UTM.ipa" "Payload/UTM.app/Frameworks/*" "Payload/UTM.app/qemu/edk2-aarch64-code.fd" "Payload/UTM.app/qemu/edk2-arm-vars.fd" "Payload/UTM.app/qemu/efi-virtio.rom" -d "$utm_dir"
 python3 - "$utm_dir/Payload/UTM.app/Frameworks" "$output/Payload/Andarium.app/Frameworks" <<'PY'
 import pathlib, shutil, subprocess, sys

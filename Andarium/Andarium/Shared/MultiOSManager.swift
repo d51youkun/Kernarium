@@ -179,7 +179,7 @@ final class MultiOSManager: ObservableObject {
     }
 
     func createISOProfile(name: String, isoFileName: String?, ramMiB: Int = 2048, cores: Int = 2) -> MultiOSProfile {
-        let safeDisk = name.replacingOccurrences(of: " ", with: "_") + ".raw"
+        let safeDisk = UUID().uuidString + ".raw"
         let profile = MultiOSProfile(
             name: name,
             kind: .otherOS,
@@ -230,12 +230,11 @@ final class MultiOSManager: ObservableObject {
             if shouldStop { sourceURL.stopAccessingSecurityScopedResource() }
         }
 
-        let dest = vmRootURL.appendingPathComponent(sourceURL.lastPathComponent)
+        let dest = vmRootURL.appendingPathComponent("\(UUID().uuidString)-\(sourceURL.lastPathComponent)")
         do {
-            if FileManager.default.fileExists(atPath: dest.path) {
-                try FileManager.default.removeItem(at: dest)
-            }
-            try FileManager.default.copyItem(at: sourceURL, to: dest)
+            // The copy-mode picker owns this disposable copy; moving it avoids
+            // allocating a second copy of a multi-gigabyte installer.
+            try FileManager.default.moveItem(at: sourceURL, to: dest)
             refreshISOs()
 
             if let profileID, var prof = profiles.first(where: { $0.id == profileID }) {
@@ -270,16 +269,15 @@ final class MultiOSManager: ObservableObject {
         } else {
             statusLog = QemuRuntimeEngine.shared.lastError ?? "仮想マシンの起動に失敗しました。"
         }
-        let args = (try? QemuRuntimeEngine.shared.buildArguments(for: profile, vmDirectory: vmRootURL))
-            ?? profile.qemuArguments(vmDirectory: vmRootURL)
-        let jitActive = started && profile.enableJit && InternalJitDebugger.isProcessTraced()
-        return (jitActive, args.joined(separator: " "))
+        return (false, profile.qemuArguments(vmDirectory: vmRootURL).joined(separator: " "))
     }
 
     func stopVM() {
         QemuRuntimeEngine.shared.markStopped()
-        isRunningVM = false
-        activeVMProfile = nil
+        if !QemuRuntimeEngine.shared.isRunning {
+            isRunningVM = false
+            activeVMProfile = nil
+        }
     }
 
     private func loadProfiles() {

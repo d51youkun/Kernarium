@@ -1878,7 +1878,7 @@ final class AppModel {
     /// ignored, as the screens offer none while one runs (`snapshotGate`); a
     /// rename is not one, and the start waits for it.
     func start(_ mode: StartMode, withoutRoot: Bool = false) {
-        guard !snapshotActivity.holdsGuestFiles, !testingJit else { return }
+        guard !snapshotActivity.holdsGuestFiles, !testingJit, !QemuRuntimeEngine.shared.isRunning else { return }
         // A pause of root decided from the previous session's record and not
         // saved yet is settled first: the run's own record replaces that one.
         // Without it saved, no run begins (the alert says why).

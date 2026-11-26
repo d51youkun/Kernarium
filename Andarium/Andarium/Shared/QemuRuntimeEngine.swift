@@ -13,10 +13,11 @@ final class QemuRuntimeEngine: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var statusMessage = ""
     @Published private(set) var lastError: String?
-    @Published private(set) var vncPort: UInt16 = 5900
+    private(set) var displaySocket: URL?
 
     private var qemuHandle: UnsafeMutableRawPointer?
     private var workerThread: pthread_t?
+    private var hasLaunched = false
 
     private init() {}
 
@@ -76,17 +77,28 @@ final class QemuRuntimeEngine: ObservableObject {
     }
 
     /// Builds the full QEMU argument list for booting Windows 11 ARM64 or a generic ARM64 ISO.
-    func buildArguments(for profile: MultiOSProfile, vmDirectory: URL, displayIndex: Int = 0) throws -> [String] {
+    func buildArguments(for profile: MultiOSProfile, vmDirectory: URL, display: URL) throws -> [String] {
+        func drivePath(_ url: URL) -> String { url.path.replacingOccurrences(of: ",", with: ",,") }
+        func mediaURL(_ name: String) throws -> URL {
+            guard !name.isEmpty, !name.hasPrefix("."), name == (name as NSString).lastPathComponent else {
+                throw CocoaError(.fileReadInvalidFileName)
+            }
+            let url = vmDirectory.appendingPathComponent(name)
+            if (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+                throw CocoaError(.fileReadInvalidFileName)
+            }
+            return url
+        }
         var args: [String] = ["qemu-system-aarch64"]
 
         if let resDir = Self.qemuResourceURL() {
             args += ["-L", resDir.path]
             let codeURL = resDir.appendingPathComponent("edk2-aarch64-code.fd")
             if FileManager.default.fileExists(atPath: codeURL.path) {
-                args += ["-drive", "if=pflash,format=raw,unit=0,readonly=on,file=\(codeURL.path)"]
+                args += ["-drive", "if=pflash,format=raw,unit=0,readonly=on,file=\(drivePath(codeURL))"]
             }
             if let varsURL = ensureUefiVars(for: profile.id, in: vmDirectory) {
-                args += ["-drive", "if=pflash,format=raw,unit=1,file=\(varsURL.path)"]
+                args += ["-drive", "if=pflash,format=raw,unit=1,file=\(drivePath(varsURL))"]
             }
         }
 
@@ -102,7 +114,7 @@ final class QemuRuntimeEngine: ObservableObject {
             "-device", profile.enableMouseTablet ? "usb-tablet,bus=xhci.0" : "usb-mouse,bus=xhci.0",
             "-device", "usb-kbd,bus=xhci.0",
             "-nic", "user,model=virtio-net-pci",
-            "-vnc", "127.0.0.1:\(displayIndex)",
+            "-vnc", "unix:\(display.path.replacingOccurrences(of: ",", with: ",,"))",
             "-monitor", "none",
             "-serial", "none",
         ]
@@ -112,7 +124,7 @@ final class QemuRuntimeEngine: ObservableObject {
         }
 
         if let diskFileName = profile.diskFileName {
-            let diskURL = vmDirectory.appendingPathComponent(diskFileName)
+            let diskURL = try mediaURL(diskFileName)
             let ext = diskURL.pathExtension.lowercased()
             let format = (ext == "qcow2") ? "qcow2" : (ext == "vhdx" ? "vhdx" : "raw")
             if format == "raw" {
@@ -120,17 +132,17 @@ final class QemuRuntimeEngine: ObservableObject {
             }
             if FileManager.default.fileExists(atPath: diskURL.path) {
                 args += [
-                    "-drive", "if=none,id=hd0,file=\(diskURL.path),format=\(format)",
+                    "-drive", "if=none,id=hd0,file=\(drivePath(diskURL)),format=\(format)",
                     "-device", "nvme,drive=hd0,serial=andarium-nvme",
                 ]
             }
         }
 
         if let isoFileName = profile.isoFileName {
-            let isoURL = vmDirectory.appendingPathComponent(isoFileName)
+            let isoURL = try mediaURL(isoFileName)
             if FileManager.default.fileExists(atPath: isoURL.path) {
                 args += [
-                    "-drive", "if=none,id=cd0,media=cdrom,readonly=on,file=\(isoURL.path)",
+                    "-drive", "if=none,id=cd0,media=cdrom,readonly=on,format=raw,file=\(drivePath(isoURL))",
                     "-device", "usb-storage,drive=cd0,bus=xhci.0",
                 ]
             }
@@ -141,16 +153,32 @@ final class QemuRuntimeEngine: ObservableObject {
 
     /// Launches QEMU in-process on a dedicated 8 MiB stack thread.
     func start(profile: MultiOSProfile, vmDirectory: URL) -> Bool {
-        guard !isRunning else { return true }
+        guard !isRunning, !hasLaunched else {
+            lastError = "別のセッションを開始するにはAndariumを開き直してください。"
+            return false
+        }
+        #if os(iOS)
+        guard InternalJitDebugger.isProcessTraced() else {
+            lastError = "このQEMUビルドの起動には対応デバッガが必要です。ペアリングだけではJITは有効になりません。"
+            return false
+        }
+        #endif
         guard let binaryURL = Self.qemuBinaryURL() else {
             lastError = "qemu-aarch64-softmmu.framework がバンドルに含まれていません。"
             statusMessage = lastError ?? ""
             return false
         }
 
+        let socketDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("tmp", isDirectory: true)
+        let socket = socketDirectory.appendingPathComponent("a-\(UUID().uuidString.prefix(8)).vnc")
+        guard socket.path.utf8.count < 104 else {
+            lastError = "画面接続用のソケットパスが長すぎます。"
+            return false
+        }
         let args: [String]
         do {
-            args = try buildArguments(for: profile, vmDirectory: vmDirectory, displayIndex: 0)
+            args = try buildArguments(for: profile, vmDirectory: vmDirectory, display: socket)
         } catch {
             lastError = "仮想ディスクの準備に失敗しました: \(error.localizedDescription)"
             statusMessage = lastError ?? ""
@@ -181,7 +209,7 @@ final class QemuRuntimeEngine: ObservableObject {
 
         isRunning = true
         lastError = nil
-        vncPort = 5900
+        displaySocket = socket
         statusMessage = "QEMU ARM64 を起動中..."
 
         let box = QemuLaunchBox(
@@ -189,10 +217,16 @@ final class QemuRuntimeEngine: ObservableObject {
             qemuInit: unsafeBitCast(initSym, to: QemuInitFn.self),
             qemuMainLoop: unsafeBitCast(loopSym, to: QemuVoidFn.self),
             qemuCleanup: unsafeBitCast(cleanupSym, to: QemuVoidFn.self)
-        ) { [weak self] in
+        ) { [weak self] result in
+            try? FileManager.default.removeItem(at: socket)
             Task { @MainActor in
                 self?.isRunning = false
-                self?.statusMessage = "仮想マシンが終了しました。"
+                self?.displaySocket = nil
+                if result == 0 {
+                    self?.statusMessage = "仮想マシンが終了しました。"
+                } else {
+                    self?.lastError = "QEMUの初期化に失敗しました（\(result)）。"
+                }
             }
         }
 
@@ -209,22 +243,23 @@ final class QemuRuntimeEngine: ObservableObject {
         if rc != 0 {
             Unmanaged<QemuLaunchBox>.fromOpaque(rawBox).release()
             isRunning = false
+            displaySocket = nil
             lastError = "QEMU スレッドの作成に失敗しました (errno \(rc))。"
             statusMessage = lastError ?? ""
             return false
         }
 
         workerThread = thread
+        hasLaunched = true
         return true
     }
 
     func markStopped() {
-        isRunning = false
-        statusMessage = "停止しました。"
+        if isRunning { statusMessage = "仮想マシンは実行中です。ゲスト側からシャットダウンしてください。" }
     }
 }
 
-private typealias QemuInitFn = @convention(c) (Int32, UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?) -> Void
+private typealias QemuInitFn = @convention(c) (Int32, UnsafePointer<UnsafePointer<CChar>?>?, UnsafePointer<UnsafePointer<CChar>?>?) -> Int32
 private typealias QemuVoidFn = @convention(c) () -> Void
 
 private nonisolated final class QemuLaunchBox {
@@ -232,14 +267,14 @@ private nonisolated final class QemuLaunchBox {
     let qemuInit: QemuInitFn
     let qemuMainLoop: QemuVoidFn
     let qemuCleanup: QemuVoidFn
-    let onExit: @Sendable () -> Void
+    let onExit: @Sendable (Int32) -> Void
 
     init(
         args: [String],
         qemuInit: @escaping QemuInitFn,
         qemuMainLoop: @escaping QemuVoidFn,
         qemuCleanup: @escaping QemuVoidFn,
-        onExit: @escaping @Sendable () -> Void
+        onExit: @escaping @Sendable (Int32) -> Void
     ) {
         self.args = args
         self.qemuInit = qemuInit
@@ -253,16 +288,20 @@ private nonisolated func qemuThreadEntry(_ raw: UnsafeMutableRawPointer) -> Unsa
     let box = Unmanaged<QemuLaunchBox>.fromOpaque(raw).takeRetainedValue()
     var cStrings: [UnsafeMutablePointer<CChar>?] = box.args.map { strdup($0) }
     cStrings.append(nil)
+    var result: Int32 = -1
     defer {
         for ptr in cStrings {
             if let ptr { free(ptr) }
         }
-        box.onExit()
+        box.onExit(result)
     }
     let argc = Int32(box.args.count)
-    cStrings.withUnsafeMutableBufferPointer { buf in
-        box.qemuInit(argc, buf.baseAddress)
+    let argv = cStrings.map { $0.map { UnsafePointer($0) } }
+    let envp: [UnsafePointer<CChar>?] = [nil]
+    result = argv.withUnsafeBufferPointer { args in
+        envp.withUnsafeBufferPointer { environment in box.qemuInit(argc, args.baseAddress, environment.baseAddress) }
     }
+    guard result == 0 else { return nil }
     box.qemuMainLoop()
     box.qemuCleanup()
     return nil

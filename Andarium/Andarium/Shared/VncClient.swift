@@ -5,7 +5,7 @@ import CoreGraphics
 import Foundation
 import Network
 
-/// Minimal RFB 3.8 (VNC) client over loopback TCP for QEMU's `-vnc 127.0.0.1:0`
+/// Minimal RFB 3.8 (VNC) client over a private Unix-domain socket for QEMU's
 /// display, supporting Raw rectangles, DesktopSize resize, pointer events
 /// (absolute mouse/touch via USB Tablet), and keyboard events.
 @MainActor
@@ -23,6 +23,7 @@ final class VncClient: ObservableObject {
     private var phase: HandshakePhase = .version
     private var shouldRun = false
     private var retryCount = 0
+    private static let maxBufferedBytes = 4096 * 4096 * 4 + 1024 * 1024
 
     private enum HandshakePhase {
         case version
@@ -34,12 +35,12 @@ final class VncClient: ObservableObject {
         case running
     }
 
-    func connect(port: UInt16 = 5900) {
+    func connect(socket: URL) {
         disconnect()
         shouldRun = true
         retryCount = 0
         statusText = "仮想マシン画面に接続中..."
-        openConnection(port: port)
+        openConnection(socket: socket)
     }
 
     func disconnect() {
@@ -50,9 +51,9 @@ final class VncClient: ObservableObject {
         readBuffer.removeAll(keepingCapacity: false)
     }
 
-    private func openConnection(port: UInt16) {
-        guard shouldRun, let nwPort = NWEndpoint.Port(rawValue: port) else { return }
-        let conn = NWConnection(host: "127.0.0.1", port: nwPort, using: .tcp)
+    private func openConnection(socket: URL) {
+        guard shouldRun, connection == nil else { return }
+        let conn = NWConnection(to: .unix(path: socket.path), using: .tcp)
         connection = conn
         phase = .version
         readBuffer.removeAll(keepingCapacity: true)
@@ -70,7 +71,7 @@ final class VncClient: ObservableObject {
                         conn.cancel()
                         self.connection = nil
                         try? await Task.sleep(for: .milliseconds(350))
-                        self.openConnection(port: port)
+                        self.openConnection(socket: socket)
                     } else if self.shouldRun {
                         self.statusText = "VNC 画面への接続がタイムアウトしました。"
                     }
@@ -89,9 +90,14 @@ final class VncClient: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self, self.connection === conn else { return }
                 if let data, !data.isEmpty {
+                    guard self.readBuffer.count + data.count <= Self.maxBufferedBytes else {
+                        self.disconnect()
+                        return
+                    }
                     self.readBuffer.append(data)
                     self.processBuffer(on: conn)
                 }
+                guard self.connection === conn else { return }
                 if isComplete || error != nil {
                     self.isConnected = false
                     return
@@ -106,6 +112,7 @@ final class VncClient: ObservableObject {
             switch phase {
             case .version:
                 guard readBuffer.count >= 12 else { return }
+                guard readBuffer.prefix(12).elementsEqual("RFB 003.008\n".utf8) else { disconnect(); return }
                 readBuffer.removeFirst(12)
                 send(Data("RFB 003.008\n".utf8), on: conn)
                 phase = .securityTypesCount
@@ -125,8 +132,8 @@ final class VncClient: ObservableObject {
                 let types = readBuffer.prefix(count)
                 readBuffer.removeFirst(count)
                 // Choose SecurityType 1 (None) for loopback QEMU VNC
-                let chosen: UInt8 = types.contains(1) ? 1 : (types.first ?? 1)
-                send(Data([chosen]), on: conn)
+                guard types.contains(1) else { disconnect(); return }
+                send(Data([1]), on: conn)
                 phase = .securityResult
 
             case .securityResult:
@@ -148,6 +155,10 @@ final class VncClient: ObservableObject {
                 let h = Int(readUInt16(from: readBuffer, at: 2))
                 let nameLen = Int(readUInt32(from: readBuffer, at: 20))
                 readBuffer.removeFirst(24)
+                guard (1...4096).contains(w), (1...4096).contains(h), nameLen <= 4096 else {
+                    disconnect()
+                    return
+                }
                 resizeFramebuffer(width: w, height: h)
                 phase = .serverInitName(nameLen)
 
@@ -210,7 +221,9 @@ final class VncClient: ObservableObject {
             guard readBuffer.count >= 4 else { return false }
             let rectCount = Int(readUInt16(from: readBuffer, at: 2))
             var cursor = 4
-            var dirty = false
+            var rectangles: [(x: Int, y: Int, w: Int, h: Int, offset: Int?)] = []
+            var width = framebufferWidth
+            var height = framebufferHeight
             for _ in 0..<rectCount {
                 guard readBuffer.count >= cursor + 12 else { return false }
                 let x = Int(readUInt16(from: readBuffer, at: cursor))
@@ -220,21 +233,31 @@ final class VncClient: ObservableObject {
                 let encoding = readInt32(from: readBuffer, at: cursor + 8)
                 cursor += 12
                 if encoding == -223 {
-                    // DesktopSize pseudo-encoding
-                    resizeFramebuffer(width: w, height: h)
-                    statusText = "接続済み (\(w)x\(h))"
+                    guard (1...4096).contains(w), (1...4096).contains(h) else { disconnect(); return false }
+                    width = w
+                    height = h
+                    rectangles.append((x, y, w, h, nil))
                 } else if encoding == 0 {
+                    guard x + w <= width, y + h <= height else { disconnect(); return false }
                     let byteCount = w * h * 4
                     guard readBuffer.count >= cursor + byteCount else { return false }
-                    blitRawRect(x: x, y: y, w: w, h: h, offset: cursor)
+                    rectangles.append((x, y, w, h, cursor))
                     cursor += byteCount
-                    dirty = true
                 } else {
+                    disconnect()
                     return false
                 }
             }
+            for rect in rectangles {
+                if let offset = rect.offset {
+                    blitRawRect(x: rect.x, y: rect.y, w: rect.w, h: rect.h, offset: offset)
+                } else {
+                    resizeFramebuffer(width: rect.w, height: rect.h)
+                    statusText = "接続済み (\(rect.w)x\(rect.h))"
+                }
+            }
             readBuffer.removeFirst(cursor)
-            if dirty {
+            if !rectangles.isEmpty {
                 publishImage()
             }
             requestFramebufferUpdate(incremental: true, on: conn)
@@ -261,8 +284,8 @@ final class VncClient: ObservableObject {
             return true
 
         default:
-            readBuffer.removeFirst(1)
-            return true
+            disconnect()
+            return false
         }
     }
 

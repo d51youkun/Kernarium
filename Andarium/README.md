@@ -4,6 +4,11 @@ Andarium is the iOS application that runs one Android (LineageOS 24, Android
 17) guest on the Darwin runtime. Android ships inside the app; what the user
 creates, sizes and erases is the guest. [Kernarium](../Kernarium/README.md)
 stays the developer application for Linux guests and for Android bundles.
+The OS chooser also exposes an experimental ARM64 system-emulation path
+using QEMU and EDK2, separate from Android. Windows installation media is
+imported by the user and never included in a package. QEMU's display and
+input are carried over a private Unix socket. Pairing settings are shared;
+the JIT diagnostic checks the Android runtime only.
 Andarium also runs on an Apple silicon Mac in Designed for iPad mode, whose
 minimum is macOS 27.0 (`LSMinimumSystemVersion`; the iOS minimum alone would
 map to macOS 26.0), and it
@@ -211,7 +216,11 @@ is unchanged; sign the IPA with your sideloading tool before installing it.
 
 Release builds use GitHub's hosted `xcode-27` Apple silicon image with Xcode
 27.2 and a temporary case-sensitive volume. Set the Actions repository
-variable `ANDARIUM_RELEASE_BUILDER` to `true` to allow builds and publication.
+variable `ANDARIUM_RELEASE_BUILDER` to `true` to allow builds. IPA artifacts
+from the QEMU integration are not uploaded until a device boot and a review of
+the bundled components' redistribution requirements. The repository variable
+`ANDARIUM_VERIFIED_RELEASE_COMMIT` authorizes publication for the reviewed
+commit; rerun the workflow after setting it.
 You can run the workflow manually from the default branch instead of waiting
 for the next scheduled check. GitHub requires scheduled workflows to be
 enabled on forks.
