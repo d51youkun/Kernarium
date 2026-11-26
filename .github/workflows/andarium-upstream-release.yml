@@ -107,12 +107,25 @@ jobs:
           printf '%s\n' "$RUNNER_TEMP/andarium-python/bin" >> "$GITHUB_PATH"
           git config --local user.name "$GITHUB_ACTOR"
           git config --local user.email "$GITHUB_ACTOR_ID+$GITHUB_ACTOR@users.noreply.github.com"
-          volume="$RUNNER_TEMP/andarium-volume-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          mkdir "$volume"
-          image="$volume.sparseimage"
-          hdiutil create -size 75g -fs APFSX -type SPARSE -volname AndariumBuild "$image"
-          hdiutil attach -nobrowse -mountpoint "$volume" "$image"
-          printf 'ANDARIUM_BUILD_VOLUME=%s\n' "$volume" >> "$GITHUB_ENV"
+          scratch=$(mktemp -d "$RUNNER_TEMP/andarium-volume.XXXXXXXX")
+          mkdir "$scratch/base" "$scratch/work"
+          image="$scratch/build.asif"
+          diskutil image create blank --format ASIF --size 75g --volumeName AndariumBase --fs APFS "$image"
+          diskutil image attach --nobrowse --mountPoint "$scratch/base" "$image"
+          printf 'ANDARIUM_DISK_MOUNT=%s\n' "$scratch/base" >> "$GITHUB_ENV"
+          container=$(diskutil info -plist "$scratch/base" | plutil -extract APFSContainerReference raw -o - -)
+          label="AndariumBuild-${scratch##*.}"
+          diskutil apfs addVolume "$container" APFSX "$label" -nomount
+          device=$(diskutil apfs list -plist "$container" | python3 -c '
+          import plistlib, sys
+          volumes = plistlib.loads(sys.stdin.buffer.read())["Containers"][0]["Volumes"]
+          print(next(volume["DeviceIdentifier"] for volume in volumes if volume["Name"] == sys.argv[1]))
+          ' "$label")
+          diskutil mount nobrowse -mountPoint "$scratch/work" "$device"
+          touch "$scratch/work/case-probe"
+          test ! -e "$scratch/work/CASE-PROBE"
+          rm "$scratch/work/case-probe"
+          printf 'ANDARIUM_BUILD_VOLUME=%s\n' "$scratch/work" >> "$GITHUB_ENV"
       - name: Archive Andarium and package an unsigned IPA
         env:
           GH_TOKEN: ${{ github.token }}
@@ -130,8 +143,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -n "${ANDARIUM_BUILD_VOLUME:-}" ]]; then
-            hdiutil detach "$ANDARIUM_BUILD_VOLUME"
+          if [[ -n "${ANDARIUM_DISK_MOUNT:-}" ]]; then
+            diskutil eject "$ANDARIUM_DISK_MOUNT"
           fi
 
   publish:
