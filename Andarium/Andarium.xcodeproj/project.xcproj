@@ -95,6 +95,7 @@
         { "path": "../.build/kernarium-xcframeworks/MesaGallium.xcframework", "target-membership": [ { "build-phase": "Andarium/copy/Embed Frameworks", "code-sign-on-copy": true, "header-preservation": "remove-on-copy" } ] },
         { "path": "../.build/kernarium-xcframeworks/KosmicKrisp.xcframework" },
         { "path": "../.build/kernarium-xcframeworks/LibZstd.xcframework", "target-membership": [ "Andarium/frameworks" ] },
+        { "path": "../.build/andarium-pairing/JitBridgeFFI.xcframework", "target-membership": [ "Andarium/frameworks" ] },
       ],
     },
     { "path": "../.build/andarium-system", "target-membership": [ "Andarium/resources" ] },

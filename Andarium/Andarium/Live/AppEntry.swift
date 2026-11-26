@@ -24,6 +24,7 @@ struct AppEntry {
 
     /// The live application opens no screen directly.
     var hints: ScreenHints { ScreenHints() }
+    var offersOSSelection: Bool { announcesWhatsNew }
 
     static func fromArguments() -> AppEntry {
         let info = ProcessInfo.processInfo

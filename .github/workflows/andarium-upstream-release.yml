@@ -109,6 +109,7 @@ jobs:
           ln -s "$(brew --prefix bison)/bin/bison" "$RUNNER_TEMP/andarium-python/bin/bison"
           "$RUNNER_TEMP/andarium-python/bin/bison" --version
           /usr/bin/flex --version
+          rustup target add aarch64-apple-ios
           printf '%s\n' "$RUNNER_TEMP/andarium-python/bin" >> "$GITHUB_PATH"
           git config --local user.name "$GITHUB_ACTOR"
           git config --local user.email "$GITHUB_ACTOR_ID+$GITHUB_ACTOR@users.noreply.github.com"

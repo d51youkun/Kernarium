@@ -1,6 +1,22 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Debugger & Pairing" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "デバッガとペアリング"
+          }
+        }
+      }
+    },
+    "JIT test" : {
+      "localizations" : { "ja" : { "stringUnit" : { "state" : "translated", "value" : "JITテスト" } } }
+    },
+    "No compatible debugger is connected. Open Andarium from StikDebug." : {
+      "localizations" : { "ja" : { "stringUnit" : { "state" : "translated", "value" : "対応するデバッガが接続されていません。StikDebugからAndariumを開いてください。" } } }
+    },
     "Not used while JIT is on." : {
       "comment" : "Under the AOT switch on Home while JIT is on and ready for the next start. AOT and JIT are names and stay as they are.",
       "localizations" : {
@@ -69,6 +85,12 @@
           }
         }
       }
+    },
+    "Run JIT test" : {
+      "localizations" : { "ja" : { "stringUnit" : { "state" : "translated", "value" : "JITテストを実行" } } }
+    },
+    "JIT was prepared for different CPU or memory settings. Reopen Andarium to test again." : {
+      "localizations" : { "ja" : { "stringUnit" : { "state" : "translated", "value" : "別のCPUまたはメモリ設定でJITが準備されています。Andariumを開き直してから再テストしてください。" } } }
     },
     "Started without JIT: StikDebug could not prepare it." : {
       "comment" : "Shown after a start that asked for JIT and ran without it. JIT and StikDebug are names and stay as they are.",
@@ -184,6 +206,15 @@
           }
         }
       }
+    },
+    "The runtime could not prepare or execute JIT code." : {
+      "localizations" : { "ja" : { "stringUnit" : { "state" : "translated", "value" : "ランタイムはJITコードを準備または実行できませんでした。" } } }
+    },
+    "The runtime verified executable memory for this Android guest." : {
+      "localizations" : { "ja" : { "stringUnit" : { "state" : "translated", "value" : "このAndroidゲストの設定で、ランタイムがJITコードを実行できることを確認しました。" } } }
+    },
+    "This build cannot test JIT." : {
+      "localizations" : { "ja" : { "stringUnit" : { "state" : "translated", "value" : "このビルドではJITをテストできません。" } } }
     },
     "To use JIT, open Andarium from StikDebug." : {
       "comment" : "Under the JIT switch on Home: no debugger is attached. JIT and StikDebug are names and stay as they are.",

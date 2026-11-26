@@ -104,6 +104,45 @@ xcodebuild archive -project Andarium/Andarium.xcodeproj -scheme Andarium \
 
 mkdir -p "$output/Payload"
 mv -- "$archive/Products/Applications/Andarium.app" "$output/Payload/Andarium.app"
+
+# Bundle UTM's iOS arm64 QEMU runtime and EDK2 UEFI firmware for Windows 11 ARM64 and generic ISO guests.
+utm_version="v5.0.9-2"
+utm_dir="$downloads/utm-$utm_version"
+mkdir -p "$utm_dir"
+curl -fsSL -o "$utm_dir/UTM.ipa" "https://github.com/utmapp/UTM/releases/download/$utm_version/UTM.ipa"
+unzip -q "$utm_dir/UTM.ipa" "Payload/UTM.app/Frameworks/*" "Payload/UTM.app/qemu/edk2-aarch64-code.fd" "Payload/UTM.app/qemu/edk2-arm-vars.fd" "Payload/UTM.app/qemu/efi-virtio.rom" -d "$utm_dir"
+python3 - "$utm_dir/Payload/UTM.app/Frameworks" "$output/Payload/Andarium.app/Frameworks" <<'PY'
+import pathlib, shutil, subprocess, sys
+src_dir, dst_dir = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+roots = ["qemu-aarch64-softmmu.framework", "qemu-img.framework"]
+seen = set()
+queue = list(roots)
+while queue:
+    name = queue.pop(0)
+    if name in seen:
+        continue
+    seen.add(name)
+    binary = src_dir / name / name.removesuffix(".framework")
+    out = subprocess.check_output(["otool", "-L", str(binary)], text=True)
+    for line in out.splitlines()[1:]:
+        dep = line.strip().split(" ")[0]
+        if "@rpath/" in dep:
+            fw = dep.split("@rpath/")[1].split("/")[0]
+            if fw.endswith(".framework") and (src_dir / fw).exists():
+                queue.append(fw)
+for name in sorted(seen):
+    target = dst_dir / name
+    if not target.exists():
+        shutil.copytree(src_dir / name, target, symlinks=True)
+print(f"Bundled {len(seen)} QEMU/UTM frameworks")
+PY
+mkdir -p "$output/Payload/Andarium.app/qemu"
+cp "$utm_dir/Payload/UTM.app/qemu/edk2-aarch64-code.fd" \
+   "$utm_dir/Payload/UTM.app/qemu/edk2-arm-vars.fd" \
+   "$utm_dir/Payload/UTM.app/qemu/efi-virtio.rom" \
+   "$output/Payload/Andarium.app/qemu/"
+rm -rf -- "$utm_dir"
+
 plist="$output/Payload/Andarium.app/Info.plist"
 [[ $(plutil -extract CFBundleIdentifier raw -o - "$plist") == com.imxieyi.andarium ]]
 [[ $(plutil -extract CFBundleVersion raw -o - "$plist") == "$build_number" ]]

@@ -631,7 +631,11 @@ struct HomePerformanceSection: View {
                         HomeGroup { TranslatedLibrariesRow() } footer: { TranslatedLibrariesNote() }
                     }
                     if model.jitAvailable {
-                        HomeGroup { JitRow() } footer: {
+                        HomeGroup {
+                            JitRow()
+                            RowDivider()
+                            JitTestRow()
+                        } footer: {
                             if let note = model.jitNote { SectionNote(note) }
                         }
                     }
@@ -651,9 +655,15 @@ struct HomePerformanceSection: View {
 /// it. It applies when the guest next starts.
 struct JitRow: View {
     @Environment(AppModel.self) private var model
+    @State private var showingSettings = false
 
     var body: some View {
-        OptionRow(title: "JIT", symbol: "bolt.fill") {
+        OptionRow(
+            title: "JIT",
+            symbol: "bolt.fill",
+            detail: String(localized: "Debugger & Pairing", table: "JIT"),
+            detailAction: { showingSettings = true }
+        ) {
             Toggle(isOn: Binding(
                 get: { model.jitOn },
                 set: { model.setJit($0) }
@@ -661,6 +671,46 @@ struct JitRow: View {
             .labelsHidden()
         }
         .task { model.refreshJit() }
+        .sheet(isPresented: $showingSettings) {
+            JitSettingsSheet().environment(model)
+        }
+    }
+}
+
+private struct JitTestRow: View {
+    @Environment(AppModel.self) private var model
+    @State private var result: JitAnswer?
+
+    var body: some View {
+        Button {
+            Task { result = await model.testJit() }
+        } label: {
+            HStack(spacing: 12) {
+                IconTile(symbol: "checkmark.bolt", color: .accentColor)
+                Text("Run JIT test", tableName: "JIT")
+                Spacer()
+                if model.testingJit { ProgressView() }
+            }
+            .padding(.horizontal, 16)
+            .frame(minHeight: 54)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(!model.canTestJit)
+        .alert(Text("JIT test", tableName: "JIT"), isPresented: Binding(
+            get: { result != nil }, set: { if !$0 { result = nil } }
+        )) {
+            Button("OK", role: .cancel) { result = nil }
+        } message: {
+            switch result {
+            case .ready: Text("The runtime verified executable memory for this Android guest.", tableName: "JIT")
+            case .noDebugger: Text("No compatible debugger is connected. Open Andarium from StikDebug.", tableName: "JIT")
+            case .otherSettings: Text("JIT was prepared for different CPU or memory settings. Reopen Andarium to test again.", tableName: "JIT")
+            case .unsupported: Text("This build cannot test JIT.", tableName: "JIT")
+            case .failed, .disabled: Text("The runtime could not prepare or execute JIT code.", tableName: "JIT")
+            case nil: EmptyView()
+            }
+        }
     }
 }
 

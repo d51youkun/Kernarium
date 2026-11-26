@@ -11,6 +11,7 @@ struct HomeView: View {
     /// The notes zoom out of the ribbon and back into it.
     @Namespace private var whatsNewZoom
     let hints: ScreenHints
+    var showOSSelection: (() -> Void)? = nil
 
     var body: some View {
         @Bindable var model = model
@@ -50,6 +51,14 @@ struct HomeView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Andarium")
             .toolbar {
+                if let showOSSelection {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(action: showOSSelection) {
+                            Label("Choose an operating system", systemImage: "square.grid.2x2")
+                        }
+                        .accessibilityIdentifier("home-os-menu")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     HomeInfoButton()
                 }
@@ -398,7 +407,7 @@ struct StartButton: View {
         .disabled(blocked)
     }
 
-    private var blocked: Bool { !model.plan.allowsStart || !model.host.runsGuestGraphics }
+    private var blocked: Bool { model.testingJit || !model.plan.allowsStart || !model.host.runsGuestGraphics }
 
     private var title: String {
         guard model.guest != nil, model.plan.allowsStart else { return String(localized: "Start") }

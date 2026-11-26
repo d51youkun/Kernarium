@@ -33,6 +33,7 @@ final class AndariumProcess {
 
     let entry: AppEntry
     let model: AppModel
+    let guestSelection = GuestSelection()
 
     /// What a process that ended left in the temporary directory is of no use: a
     /// report staged for sharing, a file staged for an export, the copies of a
@@ -98,7 +99,7 @@ final class AndariumSceneDelegate: UIResponder, UIWindowSceneDelegate {
             maximumFramesPerSecond: scene.screen.maximumFramesPerSecond)
         let window = UIWindow(windowScene: scene)
         window.rootViewController = AndariumHostingController(
-            rootView: RootView(entry: entry).environment(model), model: model)
+            rootView: RootView(entry: entry, guestSelection: process.guestSelection).environment(model), model: model)
         self.window = window
         window.makeKeyAndVisible()
     }
@@ -108,6 +109,7 @@ final class AndariumSceneDelegate: UIResponder, UIWindowSceneDelegate {
 struct RootView: View {
     @Environment(AppModel.self) private var model
     let entry: AppEntry
+    var guestSelection = GuestSelection()
 
     /// What VoiceOver is told as a run begins (`AppModel.announceRunStart`);
     /// other screens speak for themselves from their first element.
@@ -134,7 +136,7 @@ struct RootView: View {
             Group {
                 switch model.phase {
                 case .home:
-                    HomeView(hints: entry.hints)
+                    guestHome
                 case .booting(let kind):
                     BootView(kind: kind)
                         .id(kind)
@@ -168,6 +170,7 @@ struct RootView: View {
         // A new screen replaces the old one under VoiceOver's cursor: it
         // starts again at the top, and hears what the run now is.
         .onChange(of: model.phase) { _, phase in
+            if phase != .home { guestSelection.selected = .android }
             model.announceRunStart(phase)
         }
         .animation(.easeInOut(duration: 0.2), value: model.busy != nil)
@@ -190,6 +193,58 @@ struct RootView: View {
             guard !model.launchApplied else { return }
             model.launchApplied = true
             await entry.applyDeferred(to: model)
+        }
+    }
+
+    @ViewBuilder private var guestHome: some View {
+        if !entry.offersOSSelection || model.androidApps.open.pending != nil {
+            HomeView(hints: entry.hints)
+        } else {
+            switch guestSelection.selected {
+            case .android:
+                HomeView(hints: entry.hints, showOSSelection: { guestSelection.selected = nil })
+            case .windows:
+                NavigationStack {
+                    WindowsHomeView()
+                        .navigationTitle("Windows 11 ARM64")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button { guestSelection.selected = nil } label: {
+                                    Label("Choose an operating system", systemImage: "chevron.backward")
+                                }
+                            }
+                        }
+                }
+            case .otherOS:
+                NavigationStack {
+                    OtherOSHomeView()
+                        .navigationTitle("ISO / Other OS")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button { guestSelection.selected = nil } label: {
+                                    Label("Choose an operating system", systemImage: "chevron.backward")
+                                }
+                            }
+                        }
+                }
+            case .terminal:
+                NavigationStack {
+                    TerminalConsoleView()
+                        .navigationTitle("Terminal")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button { guestSelection.selected = nil } label: {
+                                    Label("Choose an operating system", systemImage: "chevron.backward")
+                                }
+                            }
+                        }
+                }
+            case nil:
+                GuestSelectionView(selection: guestSelection)
+            }
         }
     }
 }

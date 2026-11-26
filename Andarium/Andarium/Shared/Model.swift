@@ -345,6 +345,33 @@ final class AppModel {
     /// The debugger is preparing the executable memory, which the boot screen
     /// says while it takes the seconds it takes.
     var preparingJit = false
+    private(set) var testingJit = false
+
+    var canTestJit: Bool {
+        jitAvailable && driver != nil && guest != nil && phase == .home && !testingJit
+    }
+
+    /// Uses the runtime's executable-memory probe without starting Android or
+    /// changing the saved JIT preference. Preparation lasts for this process.
+    func testJit() async -> JitAnswer {
+        guard canTestJit, let guest, let driver else { return .unsupported }
+        testingJit = true
+        defer {
+            testingJit = false
+            refreshJit()
+        }
+        let shape = JitShape(memoryMiB: guest.memoryMiB, processorCount: guest.cores)
+        await waitForJitLaunch()
+        if let jitPrepared { return jitPrepared == shape ? .ready : .otherSettings }
+
+        let answer = await driver.prepareJit(wanted: true, shape: shape)
+        if answer == .ready {
+            jitPrepared = shape
+            jitLaunch = nil
+            jitLastStart = nil
+        }
+        return answer
+    }
     /// How the attempt made when Andarium opened ended, when it left the
     /// memory unprepared (`prepareJitAtLaunch`).
     var jitLaunch: JitAnswer?
@@ -1851,7 +1878,7 @@ final class AppModel {
     /// ignored, as the screens offer none while one runs (`snapshotGate`); a
     /// rename is not one, and the start waits for it.
     func start(_ mode: StartMode, withoutRoot: Bool = false) {
-        guard !snapshotActivity.holdsGuestFiles else { return }
+        guard !snapshotActivity.holdsGuestFiles, !testingJit else { return }
         // A pause of root decided from the previous session's record and not
         // saved yet is settled first: the run's own record replaces that one.
         // Without it saved, no run begins (the alert says why).

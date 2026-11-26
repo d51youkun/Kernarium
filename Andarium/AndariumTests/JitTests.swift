@@ -405,6 +405,31 @@ struct JitAtLaunchTests {
         #expect(!model.preparingJit)
     }
 
+    @Test func theTestReportsNoDebuggerWithoutEnablingJit() async {
+        let (model, driver) = model(jitOn: false, attached: false)
+        driver.jitAnswer = .noDebugger
+        let answer = await model.testJit()
+        #expect(answer == .noDebugger)
+        #expect(model.jitPrepared == nil)
+        #expect(!model.jitOn)
+        #expect(!model.testingJit)
+    }
+
+    @Test func theTestKeepsVerifiedMemoryForTheSameShape() async {
+        let (model, driver) = model(jitOn: true)
+        driver.jitAnswer = .ready
+        let answer = await model.testJit()
+        #expect(answer == .ready)
+        #expect(model.jitPrepared == standard)
+        let repeated = await model.testJit()
+        #expect(repeated == .ready)
+        #expect(driver.jitAsked.count == 1)
+        model.guest?.memoryMiB -= 512
+        let changed = await model.testJit()
+        #expect(changed == .otherSettings)
+        #expect(driver.jitAsked.count == 1)
+    }
+
     @Test func aStartThatComesWhileTheAttemptRunsWaitsForItAndSaysSo() async {
         let (model, driver) = model(jitOn: true)
         driver.holdsJit = true

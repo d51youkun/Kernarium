@@ -1,0 +1,4 @@
+module JitBridgeFFI {
+    header "jit_bridge.h"
+    export *
+}

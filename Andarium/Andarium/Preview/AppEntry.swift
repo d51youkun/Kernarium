@@ -10,6 +10,7 @@ import UIKit
 /// directly with mock data, so a simulator driven only by `simctl` reaches
 /// every flow. The arguments are the keys `fromArguments()` reads.
 struct AppEntry {
+    var offersOSSelection: Bool { false }
     var screen: String
     /// Boot screens animate and continue into the session instead of holding.
     var play: Bool

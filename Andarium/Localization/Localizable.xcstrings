@@ -1,6 +1,11 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Choose an operating system" : {
+      "localizations" : {
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "OSを選択" } }
+      }
+    },
     "%@" : {
       "localizations" : {
         "ja" : {
