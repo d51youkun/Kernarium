@@ -38,6 +38,11 @@ final class QemuRuntimeEngine: ObservableObject {
         return FileManager.default.fileExists(atPath: resURL.path) ? resURL : nil
     }
 
+    /// Present only in a locally packaged build that includes installation media.
+    nonisolated static var bundledWindowsISO: URL? {
+        Bundle.main.url(forResource: "Windows11-arm64-ja-JP", withExtension: "iso", subdirectory: "qemu")
+    }
+
     var isEngineAvailable: Bool {
         Self.qemuBinaryURL() != nil
     }
@@ -138,8 +143,9 @@ final class QemuRuntimeEngine: ObservableObject {
             }
         }
 
-        if let isoFileName = profile.isoFileName {
-            let isoURL = try mediaURL(isoFileName)
+        let installer = try profile.isoFileName.map { try mediaURL($0) }
+            ?? (profile.kind == .windows11 ? Self.bundledWindowsISO : nil)
+        if let isoURL = installer {
             if FileManager.default.fileExists(atPath: isoURL.path) {
                 args += [
                     "-drive", "if=none,id=cd0,media=cdrom,readonly=on,format=raw,file=\(drivePath(isoURL))",

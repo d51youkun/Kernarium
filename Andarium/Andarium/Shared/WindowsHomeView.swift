@@ -198,6 +198,9 @@ struct WindowsHomeView: View {
                         Label("ISO: \(iso)", systemImage: "opticaldisc.fill")
                             .font(.subheadline)
                             .foregroundStyle(.blue)
+                    } else if QemuRuntimeEngine.bundledWindowsISO != nil {
+                        Label("内蔵の Windows 11 ARM64 日本語 ISO", systemImage: "opticaldisc.fill")
+                            .font(.subheadline)
                     } else {
                         Text("Windows 11 ARM64 ISO が未選択です。")
                             .font(.subheadline)

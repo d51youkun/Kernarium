@@ -6,7 +6,10 @@ creates, sizes and erases is the guest. [Kernarium](../Kernarium/README.md)
 stays the developer application for Linux guests and for Android bundles.
 The OS chooser also exposes an experimental ARM64 system-emulation path
 using QEMU and EDK2, separate from Android. Windows installation media is
-imported by the user and never included in a package. QEMU's display and
+imported by the user and is excluded from public packages. For personal
+use, `scripts/package-local-windows-ipa.sh` embeds a local installer into an
+unsigned QEMU-enabled IPA; the Windows profile uses it unless an installer
+was explicitly selected. QEMU's display and
 input are carried over a private Unix socket. Pairing settings are shared;
 the JIT diagnostic checks the Android runtime only.
 Andarium also runs on an Apple silicon Mac in Designed for iPad mode, whose
