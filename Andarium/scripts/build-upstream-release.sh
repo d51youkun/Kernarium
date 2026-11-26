@@ -82,7 +82,7 @@ if [[ -f "$metadata/accepted-aot.env" ]] &&
 fi
 python3 -B android/lineage-24/tools/install-release.py "${install_args[@]}"
 
-for product in apple-gpu-vulkan-experiment ios-network ios-compression; do
+for product in apple-gpu-vulkan-experiment ios-network ios-storage ios-compression; do
     dependencies/prepare.sh --product "$product"
 done
 dependencies/build-apple-gpu.sh --platform ios
