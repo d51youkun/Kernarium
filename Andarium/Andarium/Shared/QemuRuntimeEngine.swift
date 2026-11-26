@@ -249,8 +249,7 @@ private nonisolated final class QemuLaunchBox {
     }
 }
 
-private nonisolated func qemuThreadEntry(_ raw: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? {
-    guard let raw else { return nil }
+private nonisolated func qemuThreadEntry(_ raw: UnsafeMutableRawPointer) -> UnsafeMutableRawPointer? {
     let box = Unmanaged<QemuLaunchBox>.fromOpaque(raw).takeRetainedValue()
     var cStrings: [UnsafeMutablePointer<CChar>?] = box.args.map { strdup($0) }
     cStrings.append(nil)
