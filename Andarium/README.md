@@ -198,6 +198,26 @@ build for a concrete Simulator
 ([`docs/testing.md`](../docs/testing.md#apple-builds-and-kernarium) has the
 destination rules).
 
+### Fork release builds
+
+The [release workflow](../.github/workflows/andarium-upstream-release.yml)
+checks upstream's stable Andarium releases hourly. It builds the latest one
+not already published by the fork, merges the upstream tag with the fork's
+default branch in a temporary worktree, and publishes an unsigned IPA and the
+corresponding source after the Release archive checks pass. A merge conflict,
+missing accepted artifact, or failed check stops publication. The bundle ID
+is unchanged; sign the IPA with your sideloading tool before installing it.
+
+Release builds require a dedicated self-hosted Apple silicon runner labelled
+`andarium-release`, with a case-sensitive workspace and runner temporary
+directory, the iPhoneOS 27.2 SDK or newer, the Metal Toolchain, Git configured
+for commits, and the [host build tools](../dependencies/README.md#host-prerequisites).
+Use this runner only for trusted workflow jobs. Set the Actions repository
+variable `ANDARIUM_RELEASE_BUILDER` to `true` after provisioning the runner.
+You can run the workflow manually from the default branch instead of waiting
+for the next scheduled check. GitHub requires scheduled workflows to be
+enabled on forks.
+
 ### Configurations
 
 The project has Debug and Release. Release is the distributed build, with its

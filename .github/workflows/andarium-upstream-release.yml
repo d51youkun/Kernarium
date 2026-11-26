@@ -1,0 +1,118 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+name: Andarium upstream release
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: andarium-upstream-release
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      upstream_tag: ${{ steps.release.outputs.upstream_tag }}
+      fork_tag: ${{ steps.release.outputs.fork_tag }}
+      upstream_build: ${{ steps.release.outputs.upstream_build }}
+    steps:
+      - name: Check for an unpublished Andarium release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILDER_ENABLED: ${{ vars.ANDARIUM_RELEASE_BUILDER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release=$(gh api --paginate repos/imxieyi/Kernarium/releases --slurp |
+            jq -c '[.[][] | select(.draft == false and .prerelease == false)
+              | select(.tag_name | test("^andarium-[0-9]+(\\.[0-9]+)+$"))
+              | select(any(.assets[]; .name | test("^Andarium-[0-9.]+-[0-9]+\\.ipa$")))]
+              | max_by(.published_at)')
+          if [[ "$release" == null ]]; then
+            echo 'No stable upstream Andarium release with an IPA was found.'
+            exit 0
+          fi
+          tag=$(jq -r .tag_name <<< "$release")
+          build=$(jq -r '[.assets[].name | capture("^Andarium-[0-9.]+-(?<build>[0-9]+)\\.ipa$").build
+            | tonumber] | max' <<< "$release")
+          fork_tag="fork-$tag"
+          tags=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --slurp)
+          if jq -e --arg tag "$fork_tag" 'any(.[][]; .tag_name == $tag and .draft == false)' <<< "$tags" >/dev/null; then
+            echo "$fork_tag is already published."
+            exit 0
+          fi
+          if [[ "$BUILDER_ENABLED" != true ]]; then
+            echo "::warning::New release $tag found. Set ANDARIUM_RELEASE_BUILDER=true after preparing the release runner."
+            exit 0
+          fi
+          printf 'upstream_tag=%s\nfork_tag=%s\nupstream_build=%s\n' "$tag" "$fork_tag" "$build" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: detect
+    if: needs.detect.outputs.upstream_tag != ''
+    runs-on: [self-hosted, macOS, ARM64, andarium-release]
+    timeout-minutes: 180
+    env:
+      UPSTREAM_TAG: ${{ needs.detect.outputs.upstream_tag }}
+      UPSTREAM_BUILD: ${{ needs.detect.outputs.upstream_build }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Archive Andarium and package an unsigned IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: bash Andarium/scripts/build-upstream-release.sh "$UPSTREAM_TAG" "$UPSTREAM_BUILD" "$GITHUB_RUN_NUMBER" "$RUNNER_TEMP/andarium-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: andarium-release
+          path: ${{ runner.temp }}/andarium-${{ github.run_id }}-${{ github.run_attempt }}/publish/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Remove generated build output
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$RUNNER_TEMP" && "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
+          rm -rf -- "$RUNNER_TEMP/andarium-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+
+  publish:
+    needs: [detect, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPSTREAM_TAG: ${{ needs.detect.outputs.upstream_tag }}
+      FORK_TAG: ${{ needs.detect.outputs.fork_tag }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: andarium-release
+          path: publish
+      - name: Publish the IPA and its corresponding source
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd publish && sha256sum --check SHA256SUMS)
+          if ! gh release view "$FORK_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft >/dev/null 2>&1; then
+            gh release create "$FORK_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft \
+              --title "Andarium ${UPSTREAM_TAG#andarium-} (fork build)" \
+              --notes "Unsigned iOS IPA. Re-sign it before installing. Built against upstream $UPSTREAM_TAG; the exact merged source is attached."
+          fi
+          [[ $(gh release view "$FORK_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft) == true ]]
+          gh release upload "$FORK_TAG" --repo "$GITHUB_REPOSITORY" --clobber publish/*
+          gh release edit "$FORK_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
