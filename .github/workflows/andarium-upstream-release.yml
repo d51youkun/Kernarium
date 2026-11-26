@@ -5,6 +5,21 @@ on:
   schedule:
     - cron: '23 * * * *'
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/andarium-upstream-release.yml'
+      - 'Andarium/**'
+      - 'GuestHost/**'
+      - 'Kernarium/**'
+      - 'darwin/**'
+      - 'dependencies/**'
+      - 'cmake/**'
+      - 'kernel/**'
+      - 'android/**'
+      - 'scripts/**'
+      - 'tools/aot/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
 
 permissions:
   contents: read
@@ -21,9 +36,9 @@ jobs:
     outputs:
       upstream_tag: ${{ steps.release.outputs.upstream_tag }}
       fork_tag: ${{ steps.release.outputs.fork_tag }}
-      upstream_build: ${{ steps.release.outputs.upstream_build }}
+      build_floor: ${{ steps.release.outputs.build_floor }}
     steps:
-      - name: Check for an unpublished Andarium release
+      - name: Check for an unpublished upstream and fork revision
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -43,17 +58,22 @@ jobs:
           tag=$(jq -r .tag_name <<< "$release")
           build=$(jq -r '[.assets[].name | capture("^Andarium-[0-9.]+-(?<build>[0-9]+)\\.ipa$").build
             | tonumber] | max' <<< "$release")
-          fork_tag="fork-$tag"
+          # A fork feature update needs a new build even when upstream's tag has not changed.
+          fork_tag="fork-$tag-$GITHUB_SHA"
           tags=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --slurp)
           if jq -e --arg tag "$fork_tag" 'any(.[][]; .tag_name == $tag and .draft == false)' <<< "$tags" >/dev/null; then
             echo "$fork_tag is already published."
             exit 0
           fi
           if [[ "$BUILDER_ENABLED" != true ]]; then
-            echo "::warning::New release $tag found. Set ANDARIUM_RELEASE_BUILDER=true after preparing the release runner."
+            echo "::warning::Build needed for $tag and fork commit $GITHUB_SHA. Set ANDARIUM_RELEASE_BUILDER=true after preparing the release runner."
             exit 0
           fi
-          printf 'upstream_tag=%s\nfork_tag=%s\nupstream_build=%s\n' "$tag" "$fork_tag" "$build" >> "$GITHUB_OUTPUT"
+          floor=$(jq -r --argjson upstream "$build" '
+            [$upstream, (.[][] | select(.draft == false and (.tag_name | startswith("fork-andarium-")))
+              | .assets[].name | capture("^Andarium-[0-9.]+-(?<build>[0-9]+)-unsigned\\.ipa$")
+              | .build | tonumber)] | max' <<< "$tags")
+          printf 'upstream_tag=%s\nfork_tag=%s\nbuild_floor=%s\n' "$tag" "$fork_tag" "$floor" >> "$GITHUB_OUTPUT"
 
   build:
     needs: detect
@@ -62,7 +82,7 @@ jobs:
     timeout-minutes: 180
     env:
       UPSTREAM_TAG: ${{ needs.detect.outputs.upstream_tag }}
-      UPSTREAM_BUILD: ${{ needs.detect.outputs.upstream_build }}
+      BUILD_FLOOR: ${{ needs.detect.outputs.build_floor }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -72,7 +92,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: bash Andarium/scripts/build-upstream-release.sh "$UPSTREAM_TAG" "$UPSTREAM_BUILD" "$GITHUB_RUN_NUMBER" "$RUNNER_TEMP/andarium-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+        run: bash Andarium/scripts/build-upstream-release.sh "$UPSTREAM_TAG" "$BUILD_FLOOR" 1 "$RUNNER_TEMP/andarium-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: andarium-release
@@ -110,8 +130,8 @@ jobs:
           (cd publish && sha256sum --check SHA256SUMS)
           if ! gh release view "$FORK_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft >/dev/null 2>&1; then
             gh release create "$FORK_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft \
-              --title "Andarium ${UPSTREAM_TAG#andarium-} (fork build)" \
-              --notes "Unsigned iOS IPA. Re-sign it before installing. Built against upstream $UPSTREAM_TAG; the exact merged source is attached."
+              --title "Andarium ${UPSTREAM_TAG#andarium-} (fork ${GITHUB_SHA:0:12})" \
+              --notes "Unsigned iOS IPA. Re-sign it before installing. Built against upstream $UPSTREAM_TAG and fork commit $GITHUB_SHA; the exact merged source is attached."
           fi
           [[ $(gh release view "$FORK_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft) == true ]]
           gh release upload "$FORK_TAG" --repo "$GITHUB_REPOSITORY" --clobber publish/*

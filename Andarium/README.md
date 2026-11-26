@@ -201,10 +201,11 @@ destination rules).
 ### Fork release builds
 
 The [release workflow](../.github/workflows/andarium-upstream-release.yml)
-checks upstream's stable Andarium releases hourly. It builds the latest one
-not already published by the fork, merges the upstream tag with the fork's
-default branch in a temporary worktree, and publishes an unsigned IPA and the
-corresponding source after the Release archive checks pass. A merge conflict,
+checks upstream's stable Andarium releases hourly and runs after changes to
+build inputs on the fork's default branch. It builds each unpublished pair of
+latest upstream tag and fork revision in a temporary merge worktree, then
+publishes an unsigned IPA and the corresponding source after the Release
+archive checks pass. Uncommitted local changes are not included. A merge conflict,
 missing accepted artifact, or failed check stops publication. The bundle ID
 is unchanged; sign the IPA with your sideloading tool before installing it.
 
@@ -212,6 +213,8 @@ Release builds require a dedicated self-hosted Apple silicon runner labelled
 `andarium-release`, with a case-sensitive workspace and runner temporary
 directory, the iPhoneOS 27.2 SDK or newer, the Metal Toolchain, Git configured
 for commits, and the [host build tools](../dependencies/README.md#host-prerequisites).
+When the fork contains the pairing bridge, the runner also needs its Rust
+iOS target and pre-populated Cargo cache.
 Use this runner only for trusted workflow jobs. Set the Actions repository
 variable `ANDARIUM_RELEASE_BUILDER` to `true` after provisioning the runner.
 You can run the workflow manually from the default branch instead of waiting

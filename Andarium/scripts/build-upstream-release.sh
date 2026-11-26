@@ -92,6 +92,9 @@ cmake --preset kernarium-ios-device-android
 cmake --build --preset kernarium-ios-device-android
 Kernarium/scripts/package-ios-frameworks.sh --runtimes android
 python3 -B Andarium/scripts/stage-system-image.py
+if [[ -f Andarium/scripts/build-pairing-bridge.sh ]]; then
+    bash Andarium/scripts/build-pairing-bridge.sh
+fi
 [[ -z $(git status --porcelain) ]]
 
 archive="$output/Andarium.xcarchive"
