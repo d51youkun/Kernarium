@@ -97,20 +97,18 @@ jobs:
           if ! xcrun --find metal >/dev/null 2>&1 || ! xcrun metal --version >/dev/null 2>&1; then
             xcodebuild -downloadComponent MetalToolchain
           fi
-          brew install autoconf automake bison flex gettext gperf groff libtool make
-          for tool in bison flex gettext groff make; do
+          brew install autoconf automake bison gettext gperf groff libtool make
+          for tool in bison gettext groff make; do
             prefix=$(brew --prefix "$tool")
             printf '%s\n' "$prefix/bin" >> "$GITHUB_PATH"
           done
           python3 -m venv "$RUNNER_TEMP/andarium-python"
           "$RUNNER_TEMP/andarium-python/bin/python" -m pip install meson Mako PyYAML packaging
           # Mesa's isolated tool PATH includes the Meson and Python directory.
-          for tool in bison flex; do
-            binary="$(brew --prefix "$tool")/bin/$tool"
-            test -x "$binary"
-            ln -s "$binary" "$RUNNER_TEMP/andarium-python/bin/$tool"
-            "$RUNNER_TEMP/andarium-python/bin/$tool" --version
-          done
+          # Only Bison needs replacing. Use Apple's SDK-compatible Flex.
+          ln -s "$(brew --prefix bison)/bin/bison" "$RUNNER_TEMP/andarium-python/bin/bison"
+          "$RUNNER_TEMP/andarium-python/bin/bison" --version
+          /usr/bin/flex --version
           printf '%s\n' "$RUNNER_TEMP/andarium-python/bin" >> "$GITHUB_PATH"
           git config --local user.name "$GITHUB_ACTOR"
           git config --local user.email "$GITHUB_ACTOR_ID+$GITHUB_ACTOR@users.noreply.github.com"
