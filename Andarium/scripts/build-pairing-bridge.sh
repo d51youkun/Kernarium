@@ -9,6 +9,13 @@ export CARGO_TARGET_DIR="$build/cargo"
 export IPHONEOS_DEPLOYMENT_TARGET=26.0
 mkdir -p "$build"
 
+# Rust embeds panic locations even in stripped release builds. Keep the
+# crate-relative diagnostics without archiving the runner's home or checkout.
+cargo_home=${CARGO_HOME:-"$HOME/.cargo"}
+printf -v CARGO_ENCODED_RUSTFLAGS '%s\037%s' \
+    "--remap-path-prefix=$cargo_home=/cargo" \
+    "--remap-path-prefix=$root=/kernarium"
+export CARGO_ENCODED_RUSTFLAGS
 cargo build --manifest-path "$source/Cargo.toml" --locked \
     --release --target aarch64-apple-ios
 scratch=$(mktemp -d "$build/.package.XXXXXXXX")
