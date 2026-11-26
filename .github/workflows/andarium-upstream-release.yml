@@ -66,7 +66,7 @@ jobs:
             exit 0
           fi
           if [[ "$BUILDER_ENABLED" != true ]]; then
-            echo "::warning::Build needed for $tag and fork commit $GITHUB_SHA. Set ANDARIUM_RELEASE_BUILDER=true after preparing the release runner."
+            echo "::warning::Build needed for $tag and fork commit $GITHUB_SHA. Set ANDARIUM_RELEASE_BUILDER=true to enable builds on GitHub-hosted runners."
             exit 0
           fi
           floor=$(jq -r --argjson upstream "$build" '
@@ -78,9 +78,10 @@ jobs:
   build:
     needs: detect
     if: needs.detect.outputs.upstream_tag != ''
-    runs-on: [self-hosted, macOS, ARM64, andarium-release]
+    runs-on: xcode-27
     timeout-minutes: 180
     env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
       UPSTREAM_TAG: ${{ needs.detect.outputs.upstream_tag }}
       BUILD_FLOOR: ${{ needs.detect.outputs.build_floor }}
     steps:
@@ -88,25 +89,50 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Prepare macOS build tools and case-sensitive storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          if ! xcrun --find metal >/dev/null 2>&1 || ! xcrun metal --version >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          brew install autoconf automake bison flex gettext gperf groff libtool make
+          for tool in bison flex gettext groff make; do
+            prefix=$(brew --prefix "$tool")
+            printf '%s\n' "$prefix/bin" >> "$GITHUB_PATH"
+          done
+          python3 -m venv "$RUNNER_TEMP/andarium-python"
+          "$RUNNER_TEMP/andarium-python/bin/python" -m pip install meson Mako PyYAML packaging
+          printf '%s\n' "$RUNNER_TEMP/andarium-python/bin" >> "$GITHUB_PATH"
+          git config --local user.name "$GITHUB_ACTOR"
+          git config --local user.email "$GITHUB_ACTOR_ID+$GITHUB_ACTOR@users.noreply.github.com"
+          volume="$RUNNER_TEMP/andarium-volume-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir "$volume"
+          image="$volume.sparseimage"
+          hdiutil create -size 75g -fs APFSX -type SPARSE -volname AndariumBuild "$image"
+          hdiutil attach -nobrowse -mountpoint "$volume" "$image"
+          printf 'ANDARIUM_BUILD_VOLUME=%s\n' "$volume" >> "$GITHUB_ENV"
       - name: Archive Andarium and package an unsigned IPA
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: bash Andarium/scripts/build-upstream-release.sh "$UPSTREAM_TAG" "$BUILD_FLOOR" 1 "$RUNNER_TEMP/andarium-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+        run: bash Andarium/scripts/build-upstream-release.sh "$UPSTREAM_TAG" "$BUILD_FLOOR" 1 "$ANDARIUM_BUILD_VOLUME/build"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: andarium-release
-          path: ${{ runner.temp }}/andarium-${{ github.run_id }}-${{ github.run_attempt }}/publish/*
+          path: ${{ env.ANDARIUM_BUILD_VOLUME }}/build/publish/*
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
-      - name: Remove generated build output
+      - name: Detach temporary build volume
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          [[ -n "$RUNNER_TEMP" && "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
-          rm -rf -- "$RUNNER_TEMP/andarium-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          if [[ -n "${ANDARIUM_BUILD_VOLUME:-}" ]]; then
+            hdiutil detach "$ANDARIUM_BUILD_VOLUME"
+          fi
 
   publish:
     needs: [detect, build]

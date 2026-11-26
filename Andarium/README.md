@@ -209,14 +209,9 @@ archive checks pass. Uncommitted local changes are not included. A merge conflic
 missing accepted artifact, or failed check stops publication. The bundle ID
 is unchanged; sign the IPA with your sideloading tool before installing it.
 
-Release builds require a dedicated self-hosted Apple silicon runner labelled
-`andarium-release`, with a case-sensitive workspace and runner temporary
-directory, the iPhoneOS 27.2 SDK or newer, the Metal Toolchain, Git configured
-for commits, and the [host build tools](../dependencies/README.md#host-prerequisites).
-When the fork contains the pairing bridge, the runner also needs its Rust
-iOS target and pre-populated Cargo cache.
-Use this runner only for trusted workflow jobs. Set the Actions repository
-variable `ANDARIUM_RELEASE_BUILDER` to `true` after provisioning the runner.
+Release builds use GitHub's hosted `xcode-27` Apple silicon image with Xcode
+27.2 and a temporary case-sensitive volume. Set the Actions repository
+variable `ANDARIUM_RELEASE_BUILDER` to `true` to allow builds and publication.
 You can run the workflow manually from the default branch instead of waiting
 for the next scheduled check. GitHub requires scheduled workflows to be
 enabled on forks.
